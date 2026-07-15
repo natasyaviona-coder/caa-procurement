@@ -1,0 +1,14 @@
+{
+  "name": "caa-procurement-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local, run-once (but reusable) import scripts. NOT part of the deployed app.",
+  "scripts": {
+    "import-pricelist": "node import-pricelist.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.1",
+    "adm-zip": "^0.5.16"
+  }
+}

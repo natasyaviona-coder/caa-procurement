@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CAA Procurement ERP
 
-## Getting Started
+Single source of truth for suppliers, products, and supplier quotes for
+PT Chandra Anugrah Abadi (Rumah Raya, Surprice Store).
 
-First, run the development server:
+**Phase 1 only** — suppliers, products, quotes, auth + roles. Restock decisions
+land in Phase 2. Do not build Phase 2 features here until Phase 1 has been used
+daily and confirmed. See `../warehouse-dashboard/CLAUDE.md` for the full plan.
+
+## Tech
+
+- **Next.js 16** (App Router, TypeScript, Turbopack)
+- **Tailwind v4** + **shadcn/ui**
+- **Supabase** — Postgres, Auth, and Storage (Storage comes in Phase 3)
+- Deploy target: Vercel
+
+## Local setup
 
 ```bash
+npm install
+cp .env.local.example .env.local
+# fill in NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# open http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Supabase setup (one-time)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Create a new Supabase project at https://supabase.com/dashboard.
+2. Copy **Project URL** and **anon public key** from *Project settings → API*
+   into `.env.local`.
+3. Open **SQL Editor** and run `supabase/migrations/0001_phase1_schema.sql`
+   verbatim. It creates enums, tables, RLS policies, and the profile-on-signup
+   trigger.
+4. Create your admin user under **Authentication → Users → Add user → Create
+   new user**. Set email to `natasyaviona@gmail.com` (or whatever you use to
+   sign in) and set a password. Auto-confirm the email so no verification link
+   is needed.
+5. Promote yourself to admin — every new signup lands as `viewer` by design.
+   In SQL Editor:
+   ```sql
+   update public.profiles set role = 'admin'
+   where email = 'natasyaviona@gmail.com';
+   ```
+6. Sign in at `/login`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Adding more users later (Phases 1–3)
 
-## Learn More
+Per section 7 of the project plan, **only the admin is provisioned at launch.**
+Don't invite Procurement or Viewer until Phases 1–3 have been in daily use.
 
-To learn more about Next.js, take a look at the following resources:
+When you do, create the user in Supabase Auth as above, then set their role:
+```sql
+update public.profiles set role = 'procurement' where email = 'someone@example.com';
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Roles
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Role         | Read | Insert/Update | Delete |
+| ------------ | ---- | ------------- | ------ |
+| viewer       | Yes  | No            | No     |
+| procurement  | Yes  | Yes           | No     |
+| admin        | Yes  | Yes           | Yes    |
 
-## Deploy on Vercel
+RLS enforces this at the database level. The UI hides write buttons for
+non-writers, and server actions re-check as defense in depth.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Project structure
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+supabase/
+  migrations/0001_phase1_schema.sql   ← source of truth for the DB
+src/
+  middleware.ts                       ← redirects unauthenticated → /login
+  lib/
+    supabase/{client,server,middleware}.ts
+    auth.ts                           ← requireProfile(), canWrite(), isAdmin()
+    types/database.ts                 ← hand-written now, regenerate later
+    enums.ts                          ← labels for DB enums
+  app/
+    layout.tsx                        ← root, fonts + metadata
+    login/                            ← unauth pages
+    auth/callback/                    ← Supabase email-link handler
+    (app)/                            ← protected group (auth required)
+      layout.tsx                      ← app shell + nav
+      page.tsx                        ← dashboard
+      suppliers/
+      products/
+      quotes/
+  components/
+    app-nav.tsx
+    ui/                               ← shadcn components
+```
+
+## Next steps (not for this phase — do NOT build ahead)
+
+- **Phase 2:** `restock_decisions` table + computed fields + Restock Now/Plan
+  Soon/OK dashboard. Wire the existing Excel logic in.
+- **Phase 3:** `competitor_prices` + linkage.
+- **Photo bulk import** (per CLAUDE.md section 6): a separate script that
+  unzips supplier `.xlsx` files, reads `xl/drawings/drawingN.xml` for image
+  anchors, uploads to Supabase Storage, and upserts `products.photo_url`.
+  Not part of the deployed app. Lives outside `src/`.
