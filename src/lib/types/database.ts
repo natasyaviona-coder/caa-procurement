@@ -178,7 +178,7 @@ export interface Database {
       competitor_products: {
         Row: {
           id: string;
-          competitor_id: string;
+          competitor_id: string | null;
           name: string;
           price_idr: number | null;
           photo_url: string | null;
@@ -193,7 +193,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          competitor_id: string;
+          competitor_id?: string | null;
           name: string;
           price_idr?: number | null;
           photo_url?: string | null;

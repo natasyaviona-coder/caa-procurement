@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BulkImportCompetitors } from "./bulk-import";
+import { PhotoPopout } from "@/components/photo-popout";
+import { AssignCompetitor } from "@/components/assign-competitor";
 import {
   Card,
   CardContent,
@@ -32,15 +34,29 @@ export default async function CompetitorsPage({
     query = query.or(`name.ilike.${term},specialization.ilike.${term}`);
   }
 
-  const [{ data: competitors, error }, countsRes] = await Promise.all([
-    query,
-    supabase.from("competitor_products").select("competitor_id"),
-  ]);
+  const [{ data: competitors, error }, countsRes, unassignedRes, allCompsRes] =
+    await Promise.all([
+      query,
+      supabase.from("competitor_products").select("competitor_id"),
+      supabase
+        .from("competitor_products")
+        .select("id, name, photo_url, price_idr, fields")
+        .is("competitor_id", null)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase.from("competitors").select("id, name").order("name"),
+    ]);
 
   const counts = new Map<string, number>();
   for (const r of countsRes.data ?? []) {
-    counts.set(r.competitor_id, (counts.get(r.competitor_id) ?? 0) + 1);
+    if (r.competitor_id) {
+      counts.set(r.competitor_id, (counts.get(r.competitor_id) ?? 0) + 1);
+    }
   }
+
+  const unassigned = unassignedRes.data ?? [];
+  const allCompetitors = allCompsRes.data ?? [];
+  const writable = canWrite(profile.role);
 
   return (
     <div className="space-y-6">
@@ -52,12 +68,13 @@ export default async function CompetitorsPage({
             each product&apos;s target sourcing RMB.
           </p>
         </div>
-        {canWrite(profile.role) ? (
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2">
-              <BulkImportCompetitors />
-              <LinkButton href="/competitors/new">New competitor</LinkButton>
-            </div>
+        {writable ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <LinkButton href="/competitors/bulk-pictures" variant="outline">
+              Bulk upload pictures
+            </LinkButton>
+            <BulkImportCompetitors />
+            <LinkButton href="/competitors/new">New competitor</LinkButton>
           </div>
         ) : null}
       </div>
@@ -80,6 +97,48 @@ export default async function CompetitorsPage({
       </form>
 
       {error ? <p className="text-sm text-destructive">{error.message}</p> : null}
+
+      {writable && unassigned.length > 0 ? (
+        <section className="space-y-3 rounded-md border border-brand/30 bg-brand/5 p-4">
+          <div>
+            <h2 className="text-sm font-medium text-foreground">
+              Unassigned pictures ({unassigned.length})
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Bulk-uploaded market pictures not yet filed under a competitor.
+              Pick a competitor for each to move it into their list.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {unassigned.map((p) => {
+              const fields = (p.fields ?? {}) as Record<string, string>;
+              return (
+                <div
+                  key={p.id}
+                  className="flex items-start gap-3 rounded-md border bg-background p-2"
+                >
+                  {p.photo_url ? (
+                    <PhotoPopout
+                      src={p.photo_url}
+                      className="h-16 w-16 shrink-0 rounded border object-contain"
+                    />
+                  ) : (
+                    <div className="h-16 w-16 shrink-0 rounded bg-muted" />
+                  )}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="truncate text-xs font-medium">{p.name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {fields.harga || "—"}
+                      {fields.reverse_hpp ? ` · ¥${fields.reverse_hpp}` : ""}
+                    </div>
+                    <AssignCompetitor productId={p.id} competitors={allCompetitors} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       {(competitors ?? []).length === 0 ? (
         <p className="text-sm text-muted-foreground">

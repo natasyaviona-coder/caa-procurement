@@ -112,6 +112,93 @@ export async function assignCompetitorProductToProduct(
   revalidatePath("/quotes");
 }
 
+// Assign (or change) the competitor on a competitor product — used to file
+// bulk-uploaded market pictures under a competitor after the fact.
+export async function setCompetitorProductCompetitor(
+  productId: string,
+  competitorId: string | null
+): Promise<void> {
+  const profile = await requireProfile();
+  if (!canWrite(profile.role)) throw new Error("Not permitted");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("competitor_products")
+    .update({ competitor_id: competitorId })
+    .eq("id", productId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/competitors");
+  if (competitorId) revalidatePath(`/competitors/${competitorId}`);
+}
+
+// ------------------------- Bulk picture upload ------------------------------
+export type BulkPictureItem = {
+  competitorId: string | null;
+  name: string;
+  priceIdr: number | null;
+  info: string | null;
+  rmb: number | null; // reverse HPP in RMB
+  photoUrl: string | null;
+};
+
+function bulkFields(
+  priceIdr: number | null,
+  rmb: number | null,
+  info: string | null
+): Record<string, string> {
+  return {
+    sold: "",
+    harga: priceIdr != null ? `Rp ${Math.round(priceIdr).toLocaleString("id-ID")}` : "",
+    reverse_hpp: rmb != null ? rmb.toFixed(2) : "",
+    reverse_ongkir: "",
+    ukuran: info?.trim() || "",
+    bahan: "",
+    isi: "",
+    spec_lain: "",
+  };
+}
+
+// Insert bulk-uploaded market pictures as competitor products. The client has
+// already extracted + cropped each one and uploaded its photo. competitor_id
+// may be null (assign later).
+export async function saveBulkCompetitorProducts(
+  items: BulkPictureItem[]
+): Promise<{ inserted: number }> {
+  const profile = await requireProfile();
+  if (!canWrite(profile.role)) throw new Error("Not permitted");
+
+  const clean = items.filter(
+    (it) => (it.name?.trim() || it.priceIdr != null || it.photoUrl)
+  );
+  if (clean.length === 0) throw new Error("Nothing to save");
+
+  const supabase = await createClient();
+  const rows = clean.map((it) => ({
+    competitor_id: it.competitorId,
+    name: it.name?.trim() || "(unnamed)",
+    price_idr: it.priceIdr != null && it.priceIdr < 1e12 ? it.priceIdr : null,
+    photo_url: it.photoUrl,
+    spec_summary: it.info?.trim() || null,
+    fields: bulkFields(it.priceIdr, it.rmb, it.info),
+    source_file: "bulk-picture",
+    created_by: profile.id,
+  }));
+
+  for (let i = 0; i < rows.length; i += 200) {
+    const { error } = await supabase
+      .from("competitor_products")
+      .insert(rows.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+  }
+
+  revalidatePath("/competitors");
+  for (const id of new Set(clean.map((it) => it.competitorId).filter(Boolean))) {
+    revalidatePath(`/competitors/${id}`);
+  }
+  return { inserted: rows.length };
+}
+
 // ------------------------- Product list import ------------------------------
 export type ImportMapping = {
   sheetIndex: number;
