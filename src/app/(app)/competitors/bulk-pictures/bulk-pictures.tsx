@@ -385,6 +385,21 @@ export function BulkPictures({ settings }: { settings: Settings }) {
         </div>
       )}
 
+      {items.length > 0 ? (
+        <div className="sticky bottom-0 flex items-center gap-2 border-t bg-background/90 py-3 backdrop-blur">
+          <Button type="button" disabled={saving || analyzing} onClick={saveAll}>
+            {saving
+              ? "Saving…"
+              : analyzing
+                ? "Analyzing…"
+                : `Save all (${items.filter((i) => i.status !== "analyzing").length})`}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Saves every reviewed picture as an unassigned competitor product.
+          </span>
+        </div>
+      ) : null}
+
       {cropId
         ? (() => {
             const it = items.find((x) => x.id === cropId);

@@ -5,11 +5,10 @@ import { Button } from "@/components/ui/button";
 
 export type Box = { x: number; y: number; width: number; height: number };
 
-const clamp = (n: number) => Math.max(0, Math.min(1, n));
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-// Drag a rectangle over the screenshot to set the crop. Works with mouse and
-// touch (pointer events). Coordinates are stored as 0..1 fractions of the
-// displayed image, which map directly onto the natural image when cropping.
+// A fixed 1:1 (square) crop window you drag to move and resize from the corner.
+// Position over the product, then Apply. Works with mouse and touch.
 export function CropModal({
   src,
   initialBox,
@@ -21,59 +20,93 @@ export function CropModal({
   onApply: (box: Box) => void;
   onClose: () => void;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  const start = useRef<{ x: number; y: number } | null>(null);
-  const [rect, setRect] = useState<Box | null>(initialBox);
+  // Square in displayed pixels: { left, top, size }.
+  const [sq, setSq] = useState<{ left: number; top: number; size: number } | null>(
+    null
+  );
+  const drag = useRef<{
+    mode: "move" | "resize";
+    startX: number;
+    startY: number;
+    orig: { left: number; top: number; size: number };
+  } | null>(null);
 
-  function toFrac(clientX: number, clientY: number) {
+  function dims() {
     const el = imgRef.current;
-    if (!el) return { x: 0, y: 0 };
-    const r = el.getBoundingClientRect();
-    return { x: clamp((clientX - r.left) / r.width), y: clamp((clientY - r.top) / r.height) };
+    if (!el) return { w: 0, h: 0 };
+    return { w: el.clientWidth, h: el.clientHeight };
   }
 
-  function onDown(e: React.PointerEvent) {
+  function initFromImage() {
+    const { w, h } = dims();
+    if (w === 0 || h === 0) return;
+    // Seed from the AI box (made square) or a centered 60% square.
+    let size = Math.round(0.6 * Math.min(w, h));
+    let left = Math.round((w - size) / 2);
+    let top = Math.round((h - size) / 2);
+    if (initialBox && initialBox.width > 0 && initialBox.height > 0) {
+      size = Math.round(Math.min(initialBox.width * w, initialBox.height * h));
+      size = clamp(size, 32, Math.min(w, h));
+      left = clamp(Math.round(initialBox.x * w), 0, w - size);
+      top = clamp(Math.round(initialBox.y * h), 0, h - size);
+    }
+    setSq({ left, top, size });
+  }
+
+  function startMove(e: React.PointerEvent) {
+    if (!sq) return;
     e.preventDefault();
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    const p = toFrac(e.clientX, e.clientY);
-    start.current = p;
-    setRect({ x: p.x, y: p.y, width: 0, height: 0 });
+    e.stopPropagation();
+    containerRef.current?.setPointerCapture(e.pointerId);
+    drag.current = { mode: "move", startX: e.clientX, startY: e.clientY, orig: { ...sq } };
+  }
+  function startResize(e: React.PointerEvent) {
+    if (!sq) return;
+    e.preventDefault();
+    e.stopPropagation();
+    containerRef.current?.setPointerCapture(e.pointerId);
+    drag.current = { mode: "resize", startX: e.clientX, startY: e.clientY, orig: { ...sq } };
   }
   function onMove(e: React.PointerEvent) {
-    if (!start.current) return;
-    const el = imgRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const p = toFrac(e.clientX, e.clientY);
-    const s = start.current;
-    // Force a square selection (equal pixels on screen → a square crop, since
-    // the image is scaled uniformly). Compute the side in px, back to fractions.
-    const side = Math.max(Math.abs((p.x - s.x) * r.width), Math.abs((p.y - s.y) * r.height));
-    const sfx = side / r.width;
-    const sfy = side / r.height;
-    const x = p.x < s.x ? s.x - sfx : s.x;
-    const y = p.y < s.y ? s.y - sfy : s.y;
-    setRect({
-      x: Math.max(0, Math.min(x, 1 - sfx)),
-      y: Math.max(0, Math.min(y, 1 - sfy)),
-      width: sfx,
-      height: sfy,
-    });
+    if (!drag.current || !sq) return;
+    const { w, h } = dims();
+    const dx = e.clientX - drag.current.startX;
+    const dy = e.clientY - drag.current.startY;
+    const o = drag.current.orig;
+    if (drag.current.mode === "move") {
+      setSq({
+        left: clamp(o.left + dx, 0, w - o.size),
+        top: clamp(o.top + dy, 0, h - o.size),
+        size: o.size,
+      });
+    } else {
+      let size = o.size + Math.max(dx, dy);
+      size = clamp(size, 32, Math.min(w - o.left, h - o.top));
+      setSq({ left: o.left, top: o.top, size });
+    }
   }
-  function onUp() {
-    start.current = null;
+  function endDrag() {
+    drag.current = null;
   }
 
-  const valid = rect != null && rect.width > 0.02 && rect.height > 0.02;
+  function apply() {
+    const { w, h } = dims();
+    if (!sq || w === 0 || h === 0) return;
+    onApply({ x: sq.left / w, y: sq.top / h, width: sq.size / w, height: sq.size / h });
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/70 p-4">
-      <p className="text-sm text-white">Drag a box around the product, then Apply.</p>
+      <p className="text-sm text-white">
+        Drag the square to move it, drag the corner to resize, then Apply.
+      </p>
       <div
-        className="relative max-h-[75vh] max-w-[92vw] touch-none select-none"
-        onPointerDown={onDown}
+        ref={containerRef}
+        className="relative touch-none select-none"
         onPointerMove={onMove}
-        onPointerUp={onUp}
+        onPointerUp={endDrag}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -81,27 +114,30 @@ export function CropModal({
           src={src}
           alt=""
           draggable={false}
-          className="max-h-[75vh] max-w-[92vw] select-none rounded"
+          onLoad={initFromImage}
+          className="max-h-[74vh] max-w-[92vw] select-none rounded"
         />
-        {rect ? (
+        {sq ? (
           <div
-            className="pointer-events-none absolute border-2 border-brand"
+            onPointerDown={startMove}
+            className="absolute cursor-move border-2 border-brand"
             style={{
-              left: `${rect.x * 100}%`,
-              top: `${rect.y * 100}%`,
-              width: `${rect.width * 100}%`,
-              height: `${rect.height * 100}%`,
+              left: sq.left,
+              top: sq.top,
+              width: sq.size,
+              height: sq.size,
               boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)",
             }}
-          />
+          >
+            <div
+              onPointerDown={startResize}
+              className="absolute -bottom-2 -right-2 size-4 cursor-nwse-resize rounded-sm border-2 border-brand bg-white"
+            />
+          </div>
         ) : null}
       </div>
       <div className="flex gap-2">
-        <Button
-          type="button"
-          disabled={!valid}
-          onClick={() => valid && rect && onApply(rect)}
-        >
+        <Button type="button" disabled={!sq} onClick={apply}>
           Apply crop
         </Button>
         <Button type="button" variant="outline" onClick={onClose}>
