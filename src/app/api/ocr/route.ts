@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
   try {
     const anthropic = new Anthropic({ apiKey });
     const response = await anthropic.messages.create({
-      model: "claude-opus-4-8",
+      model: "claude-haiku-4-5",
       max_tokens: 1024,
       output_config: { format: { type: "json_schema", schema: EXTRACTION_SCHEMA } },
       messages: [
