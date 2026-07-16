@@ -296,6 +296,8 @@ export interface Database {
           size_bytes: number | null;
           supplier_id: string | null;
           uploaded_by: string | null;
+          // sheet index -> { row number -> English translation of the name cell }
+          translations: Record<string, Record<string, string>>;
           created_at: string;
         };
         Insert: {
@@ -305,6 +307,7 @@ export interface Database {
           size_bytes?: number | null;
           supplier_id?: string | null;
           uploaded_by?: string | null;
+          translations?: Record<string, Record<string, string>>;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["price_list_files"]["Insert"]>;

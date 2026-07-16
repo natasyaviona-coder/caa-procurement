@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireProfile, canWrite, isAdmin } from "@/lib/auth";
 import { LinkButton } from "@/components/link-button";
 import { FileActions } from "./file-actions";
+import { TranslateButton } from "./translate-button";
 import {
   listSheets,
   readSheet,
@@ -58,7 +59,9 @@ export default async function FileViewerPage({
   const [fileRes, suppliersRes] = await Promise.all([
     supabase
       .from("price_list_files")
-      .select("id, file_name, storage_path, created_at, supplier_id, suppliers(name)")
+      .select(
+        "id, file_name, storage_path, created_at, supplier_id, translations, suppliers(name)"
+      )
       .eq("id", id)
       .single(),
     supabase.from("suppliers").select("id, name").order("name"),
@@ -97,6 +100,12 @@ export default async function FileViewerPage({
   }
 
   const showRaw = raw === "1" || !mapping;
+  const allTranslations = (file.translations ?? {}) as Record<
+    string,
+    Record<string, string>
+  >;
+  const sheetTranslations = allTranslations[String(sheetIndex)] ?? {};
+  const hasNameCol = mapping?.columns.name != null;
 
   return (
     <div className="space-y-6">
@@ -109,6 +118,13 @@ export default async function FileViewerPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canWrite(profile.role) && hasNameCol ? (
+            <TranslateButton
+              fileId={file.id}
+              sheetIndex={sheetIndex}
+              translated={Object.keys(sheetTranslations).length > 0}
+            />
+          ) : null}
           {canWrite(profile.role) ? (
             <FileActions
               fileId={file.id}
@@ -200,6 +216,7 @@ export default async function FileViewerPage({
           grid={grid}
           mapping={mapping}
           imageRows={imageRows}
+          translations={sheetTranslations}
         />
       ) : null}
 
@@ -214,12 +231,14 @@ function StandardizedSection({
   grid,
   mapping,
   imageRows,
+  translations,
 }: {
   fileId: string;
   sheetIndex: number;
   grid: SheetGrid;
   mapping: ColumnMapping;
   imageRows: Set<number>;
+  translations: Record<string, string>;
 }) {
   const visible = STANDARD_COLUMNS.filter(
     (c) =>
@@ -271,6 +290,7 @@ function StandardizedSection({
         sheetIndex={sheetIndex}
         columns={visible.map((c) => ({ key: c.key, label: c.label }))}
         rows={rows}
+        translations={translations}
       />
       <p className="text-xs text-muted-foreground">
         Est. Sell Price and Profit Margin are a calculator only — nothing you

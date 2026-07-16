@@ -42,11 +42,13 @@ export function StandardizedTable({
   sheetIndex,
   columns,
   rows,
+  translations = {},
 }: {
   fileId: string;
   sheetIndex: number;
   columns: StdColumn[];
   rows: StdRow[];
+  translations?: Record<string, string>;
 }) {
   // Est. sell price per row — calculator state only, never saved.
   const [sellPrices, setSellPrices] = useState<Record<number, string>>({});
@@ -108,19 +110,32 @@ export function StandardizedTable({
                       <div className="h-16 w-16 rounded bg-muted" />
                     )}
                   </TableCell>
-                  {columns.map((c) => (
-                    <TableCell
-                      key={c.key}
-                      className={cn(
-                        "max-w-56 text-xs",
-                        IDR_KEYS.has(c.key) && "text-right tabular-nums"
-                      )}
-                    >
-                      {IDR_KEYS.has(c.key)
-                        ? formatIdr(row.values[c.key])
-                        : row.values[c.key] || "—"}
-                    </TableCell>
-                  ))}
+                  {columns.map((c) => {
+                    const en =
+                      c.key === "name" ? translations[String(row.rowNum)] : undefined;
+                    return (
+                      <TableCell
+                        key={c.key}
+                        className={cn(
+                          "max-w-56 text-xs",
+                          IDR_KEYS.has(c.key) && "text-right tabular-nums"
+                        )}
+                      >
+                        {IDR_KEYS.has(c.key) ? (
+                          formatIdr(row.values[c.key])
+                        ) : c.key === "name" && en ? (
+                          <div className="space-y-0.5">
+                            <div>{en}</div>
+                            <div className="text-[11px] whitespace-pre-line text-muted-foreground">
+                              {row.values.name}
+                            </div>
+                          </div>
+                        ) : (
+                          row.values[c.key] || "—"
+                        )}
+                      </TableCell>
+                    );
+                  })}
                   <TableCell className="bg-muted/30">
                     <Input
                       type="number"
