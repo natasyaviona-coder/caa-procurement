@@ -7,47 +7,72 @@ import { createClient } from "@/lib/supabase/server";
 // Chinese). Requires ANTHROPIC_API_KEY in .env.local; without it this
 // endpoint returns 501 and the capture form falls back to manual typing.
 
+const VARIANT_PROPERTIES = {
+  label: {
+    anyOf: [{ type: "string" }, { type: "null" }],
+    description:
+      "Option/variant label when the photo lists more than one price, " +
+      "e.g. 带4杯 → 'with 4 cups', 无杯 → 'no cups', a size like '9 inch'. " +
+      "Translate to English. null if there is only a single price with no distinct option.",
+  },
+  price_rmb: {
+    anyOf: [{ type: "number" }, { type: "null" }],
+    description: "Unit price in RMB (¥) for this option. null if not visible.",
+  },
+  qty_per_carton: {
+    anyOf: [{ type: "integer" }, { type: "null" }],
+    description: "Pieces/sets per carton (装箱量 / pcs or set per ctn). null if not visible.",
+  },
+  cbm: {
+    anyOf: [{ type: "number" }, { type: "null" }],
+    description: "Carton volume in cubic meters (CBM) if stated. null otherwise.",
+  },
+  carton_p_cm: {
+    anyOf: [{ type: "number" }, { type: "null" }],
+    description: "Carton length in cm (first dimension of e.g. 外箱 51.5*37*50).",
+  },
+  carton_l_cm: {
+    anyOf: [{ type: "number" }, { type: "null" }],
+    description: "Carton width in cm (second dimension).",
+  },
+  carton_t_cm: {
+    anyOf: [{ type: "number" }, { type: "null" }],
+    description: "Carton height in cm (third dimension).",
+  },
+} as const;
+
 const EXTRACTION_SCHEMA = {
   type: "object",
   properties: {
     product_name: {
       anyOf: [{ type: "string" }, { type: "null" }],
-      description: "Product name/description if visible, translated to English",
+      description:
+        "Shared base product name/description (without the per-option label), " +
+        "translated to English. e.g. '5L bucket + electroplated stand'.",
     },
-    price_rmb: {
-      anyOf: [{ type: "number" }, { type: "null" }],
-      description: "Unit price in RMB (¥). null if not visible.",
-    },
-    qty_per_carton: {
-      anyOf: [{ type: "integer" }, { type: "null" }],
-      description: "Pieces per carton (装箱量 / pcs per ctn). null if not visible.",
-    },
-    cbm: {
-      anyOf: [{ type: "number" }, { type: "null" }],
-      description: "Carton volume in cubic meters if stated directly. null otherwise.",
-    },
-    carton_p_cm: {
-      anyOf: [{ type: "number" }, { type: "null" }],
-      description: "Carton length in cm (first dimension of e.g. 外箱 51.5*37*50).",
-    },
-    carton_l_cm: {
-      anyOf: [{ type: "number" }, { type: "null" }],
-      description: "Carton width in cm (second dimension).",
-    },
-    carton_t_cm: {
-      anyOf: [{ type: "number" }, { type: "null" }],
-      description: "Carton height in cm (third dimension).",
+    variants: {
+      type: "array",
+      description:
+        "One entry per distinct price option shown. If the photo has a single " +
+        "price, return exactly one entry (with label null). If it lists several " +
+        "options (e.g. 带4杯 ¥28.8 and 无杯 ¥24.5), return one entry per option.",
+      items: {
+        type: "object",
+        properties: VARIANT_PROPERTIES,
+        required: [
+          "label",
+          "price_rmb",
+          "qty_per_carton",
+          "cbm",
+          "carton_p_cm",
+          "carton_l_cm",
+          "carton_t_cm",
+        ],
+        additionalProperties: false,
+      },
     },
   },
-  required: [
-    "product_name",
-    "price_rmb",
-    "qty_per_carton",
-    "cbm",
-    "carton_p_cm",
-    "carton_l_cm",
-    "carton_t_cm",
-  ],
+  required: ["product_name", "variants"],
   additionalProperties: false,
 } as const;
 
@@ -107,9 +132,14 @@ export async function POST(request: NextRequest) {
               type: "text",
               text:
                 "This photo was taken at a Chinese supplier (price tag, carton label, or handwritten quote — text may be Chinese). " +
-                "Extract the product/pricing fields. Dimensions like 51.5*37*50 or 51.5×37×50 are carton P×L×T in cm. " +
+                "Extract the product and one entry per price option into `variants`. " +
+                "IMPORTANT: many quotes list several options for the same product — e.g. " +
+                "'带4杯：¥28.8  20set  0.11cbm' and '无杯：¥24.5  20set  0.11cbm' means TWO variants " +
+                "(with 4 cups / no cups) at different prices — return one entry for each, with its label translated. " +
+                "If there is only one price, return a single entry with label null. " +
+                "Dimensions like 51.5*37*50 or 51.5×37×50 are carton P×L×T in cm. " +
                 "A price like ¥42, 42元, or a bare number next to 单价/price is the RMB unit price. " +
-                "装箱量 or pcs/ctn is qty per carton. Use null for anything not clearly visible — do not guess.",
+                "装箱量, set/ctn, or pcs/ctn is qty per carton. Use null for anything not clearly visible — do not guess.",
             },
           ],
         },

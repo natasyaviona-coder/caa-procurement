@@ -23,6 +23,21 @@ function fmtIdr(n: number | null): string {
   return Math.round(n).toLocaleString("id-ID");
 }
 
+// One price option detected by OCR (a photo can list several for one product).
+type DetectedVariant = {
+  label: string | null;
+  price_rmb: number | null;
+  qty_per_carton: number | null;
+  cbm: number | null;
+  carton_p_cm: number | null;
+  carton_l_cm: number | null;
+  carton_t_cm: number | null;
+};
+
+function combineName(base: string, label: string | null): string {
+  return [base, label].map((s) => (s ?? "").trim()).filter(Boolean).join(" — ");
+}
+
 export function CaptureForm({
   supplier,
 }: {
@@ -57,6 +72,13 @@ export function CaptureForm({
   const [sellPrice, setSellPrice] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Multi-variant OCR: when a photo lists several price options, we keep the
+  // detected list + which ones have already been saved as their own line.
+  const [variants, setVariants] = useState<DetectedVariant[]>([]);
+  const [baseName, setBaseName] = useState("");
+  const [currentIdx, setCurrentIdx] = useState<number | null>(null);
+  const [savedIdx, setSavedIdx] = useState<Set<number>>(new Set());
+
   // assumptions (editable, FEI defaults)
   const [fxRate, setFxRate] = useState(String(DEFAULT_ASSUMPTIONS.fxRate));
   const [freight, setFreight] = useState(String(DEFAULT_ASSUMPTIONS.freightPerCbm));
@@ -81,6 +103,46 @@ export function CaptureForm({
     packagingFee: num(packagingFee) ?? DEFAULT_ASSUMPTIONS.packagingFee,
   });
 
+  const str = (n: number | null) => (n != null ? String(n) : "");
+
+  // Load one detected variant into the editable fields (for review + costing).
+  function loadVariant(v: DetectedVariant, base: string, idx: number | null) {
+    setProductName(combineName(base, v.label));
+    setPriceRmb(str(v.price_rmb));
+    setQtyPerCarton(str(v.qty_per_carton));
+    setCbm(str(v.cbm));
+    setCartonP(str(v.carton_p_cm));
+    setCartonL(str(v.carton_l_cm));
+    setCartonT(str(v.carton_t_cm));
+    setCurrentIdx(idx);
+  }
+
+  function resetItemFields() {
+    setProductName("");
+    setPriceRmb("");
+    setQtyPerCarton("");
+    setCbm("");
+    setCartonP("");
+    setCartonL("");
+    setCartonT("");
+    setSizeP("");
+    setSizeL("");
+    setSizeT("");
+    setSellPrice("");
+    setNotes("");
+  }
+
+  // Clear everything to start a genuinely new item.
+  function resetAll() {
+    resetItemFields();
+    setProductPhoto(null);
+    setCardPhoto(null);
+    setVariants([]);
+    setBaseName("");
+    setCurrentIdx(null);
+    setSavedIdx(new Set());
+  }
+
   async function runOcr() {
     if (!productPhoto) {
       toast.error("Add a product photo first");
@@ -93,18 +155,33 @@ export function CaptureForm({
       const res = await fetch("/api/ocr", { method: "POST", body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "OCR failed");
-      let filled = 0;
-      if (json.price_rmb != null) { setPriceRmb(String(json.price_rmb)); filled++; }
-      if (json.qty_per_carton != null) { setQtyPerCarton(String(json.qty_per_carton)); filled++; }
-      if (json.cbm != null) { setCbm(String(json.cbm)); filled++; }
-      if (json.carton_p_cm != null) { setCartonP(String(json.carton_p_cm)); filled++; }
-      if (json.carton_l_cm != null) { setCartonL(String(json.carton_l_cm)); filled++; }
-      if (json.carton_t_cm != null) { setCartonT(String(json.carton_t_cm)); filled++; }
-      if (json.product_name) { setProductName(json.product_name); filled++; }
+
+      const base: string = json.product_name ?? "";
+      const list: DetectedVariant[] = Array.isArray(json.variants)
+        ? json.variants
+        : [];
+      setBaseName(base);
+      setSavedIdx(new Set());
+
+      if (list.length === 0) {
+        setVariants([]);
+        setCurrentIdx(null);
+        if (base) setProductName(base);
+        toast.message("OCR found no usable numbers — type them in manually");
+        return;
+      }
+      if (list.length === 1) {
+        // Single price → just fill the form, no variant panel.
+        setVariants([]);
+        loadVariant(list[0], base, null);
+        toast.success("OCR filled the fields — double-check them");
+        return;
+      }
+      // Multiple options → show the variant panel, preview the first.
+      setVariants(list);
+      loadVariant(list[0], base, 0);
       toast.success(
-        filled > 0
-          ? `OCR filled ${filled} field${filled === 1 ? "" : "s"} — double-check them`
-          : "OCR found no usable numbers in this photo"
+        `Found ${list.length} price options — review each, then Save all`
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "OCR failed");
@@ -124,6 +201,25 @@ export function CaptureForm({
     return supabase.storage.from("field-photos").getPublicUrl(path).data.publicUrl;
   }
 
+  function assumptions() {
+    return {
+      fxRate: num(fxRate) ?? DEFAULT_ASSUMPTIONS.fxRate,
+      freightPerCbm: num(freight) ?? DEFAULT_ASSUMPTIONS.freightPerCbm,
+      adminPct: (num(adminPct) ?? 30) / 100,
+      orderFee: num(orderFee) ?? DEFAULT_ASSUMPTIONS.orderFee,
+      packagingFee: num(packagingFee) ?? DEFAULT_ASSUMPTIONS.packagingFee,
+    };
+  }
+
+  async function uploadPhotos() {
+    const photoUrl = productPhoto ? await uploadPhoto(productPhoto, "product") : null;
+    // A business card can only be stored on a supplier — skip it until one is set.
+    const businessCardUrl =
+      cardPhoto && supplier ? await uploadPhoto(cardPhoto, "card") : null;
+    return { photoUrl, businessCardUrl };
+  }
+
+  // Save the currently-loaded fields as one quote line.
   function save() {
     if (num(priceRmb) == null && !productPhoto) {
       toast.error("Add at least a price or a product photo");
@@ -131,14 +227,7 @@ export function CaptureForm({
     }
     start(async () => {
       try {
-        const photoUrl = productPhoto
-          ? await uploadPhoto(productPhoto, "product")
-          : null;
-        // A business card can only be stored on a supplier — skip it until one
-        // is assigned.
-        const businessCardUrl =
-          cardPhoto && supplier ? await uploadPhoto(cardPhoto, "card") : null;
-
+        const { photoUrl, businessCardUrl } = await uploadPhotos();
         await saveFieldQuote({
           supplierId: supplier?.id ?? null,
           productName: productName || null,
@@ -153,31 +242,73 @@ export function CaptureForm({
           sizeP: num(sizeP),
           sizeL: num(sizeL),
           sizeT: num(sizeT),
-          fxRate: num(fxRate) ?? DEFAULT_ASSUMPTIONS.fxRate,
-          freightPerCbm: num(freight) ?? DEFAULT_ASSUMPTIONS.freightPerCbm,
-          adminPct: (num(adminPct) ?? 30) / 100,
-          orderFee: num(orderFee) ?? DEFAULT_ASSUMPTIONS.orderFee,
-          packagingFee: num(packagingFee) ?? DEFAULT_ASSUMPTIONS.packagingFee,
+          ...assumptions(),
           estSellPrice: num(sellPrice),
           notes: notes || null,
         });
-        toast.success("Saved — capture the next item");
-        // Reset item fields, keep assumptions for the next capture.
-        setProductPhoto(null);
-        setCardPhoto(null);
-        setProductName("");
-        setPriceRmb("");
-        setQtyPerCarton("");
-        setCbm("");
-        setCartonP("");
-        setCartonL("");
-        setCartonT("");
-        setSizeP("");
-        setSizeL("");
-        setSizeT("");
-        setSellPrice("");
-        setNotes("");
         router.refresh();
+
+        if (variants.length > 1) {
+          // Multi-variant: mark this option saved, keep the photo + list for
+          // the remaining options.
+          const nextSaved = new Set(savedIdx);
+          if (currentIdx != null) nextSaved.add(currentIdx);
+          resetItemFields();
+          if (nextSaved.size >= variants.length) {
+            toast.success("All options saved — start the next item");
+            resetAll();
+          } else {
+            setSavedIdx(nextSaved);
+            setCurrentIdx(null);
+            toast.success("Option saved — pick the next one or Save all");
+          }
+        } else {
+          toast.success("Saved — capture the next item");
+          resetAll();
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Save failed");
+      }
+    });
+  }
+
+  // Save every not-yet-saved detected variant as its own line, in one go.
+  function saveAll() {
+    const remaining = variants
+      .map((v, i) => ({ v, i }))
+      .filter(({ i }) => !savedIdx.has(i));
+    if (remaining.length === 0) {
+      toast.message("All options already saved");
+      return;
+    }
+    start(async () => {
+      try {
+        const { photoUrl, businessCardUrl } = await uploadPhotos();
+        for (const { v } of remaining) {
+          await saveFieldQuote({
+            supplierId: supplier?.id ?? null,
+            productName: combineName(baseName, v.label) || null,
+            photoUrl,
+            businessCardUrl,
+            priceRmb: v.price_rmb,
+            qtyPerCarton: v.qty_per_carton,
+            cartonP: v.carton_p_cm,
+            cartonL: v.carton_l_cm,
+            cartonT: v.carton_t_cm,
+            cbm: v.cbm,
+            sizeP: null,
+            sizeL: null,
+            sizeT: null,
+            ...assumptions(),
+            estSellPrice: null,
+            notes: notes || null,
+          });
+        }
+        toast.success(
+          `Saved ${remaining.length} line${remaining.length === 1 ? "" : "s"}`
+        );
+        router.refresh();
+        resetAll();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Save failed");
       }
@@ -222,6 +353,54 @@ export function CaptureForm({
             </div>
           )}
         </section>
+
+        {/* Detected price options (multi-variant photos) */}
+        {variants.length > 1 ? (
+          <section className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-semibold uppercase text-muted-foreground">
+                {variants.length} price options detected
+              </h2>
+              <Button type="button" size="sm" onClick={saveAll} disabled={pending}>
+                {pending ? "Saving…" : "Save all"}
+              </Button>
+            </div>
+            <div className="space-y-1">
+              {variants.map((v, i) => {
+                const saved = savedIdx.has(i);
+                const active = currentIdx === i;
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => loadVariant(v, baseName, i)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors",
+                      active
+                        ? "border-brand bg-brand/5"
+                        : "border-border hover:bg-muted",
+                      saved && "opacity-50"
+                    )}
+                  >
+                    <span className="font-medium">
+                      {v.label || `Option ${i + 1}`}
+                      {saved ? " · saved ✓" : ""}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {v.price_rmb != null ? `¥${v.price_rmb}` : "—"}
+                      {v.qty_per_carton != null ? ` · ${v.qty_per_carton}/ctn` : ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Tap an option to review its live costing below, then Save it — or
+              Save all to store every option at once (each becomes its own line,
+              sharing this photo).
+            </p>
+          </section>
+        ) : null}
 
         {/* Data */}
         <section className="grid gap-4 sm:grid-cols-2">
@@ -308,7 +487,11 @@ export function CaptureForm({
         </section>
 
         <Button onClick={save} disabled={pending} size="lg">
-          {pending ? "Saving…" : "Save quotation"}
+          {pending
+            ? "Saving…"
+            : variants.length > 1
+              ? "Save this option"
+              : "Save quotation"}
         </Button>
       </div>
 
