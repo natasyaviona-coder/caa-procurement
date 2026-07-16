@@ -1,19 +1,10 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requireProfile } from "@/lib/auth";
 import { LinkButton } from "@/components/link-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { PhotoPopout } from "@/components/photo-popout";
 import { CompetitorsTabs } from "../competitors-tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { AllProductsTable, type AllProduct } from "./all-products-table";
 
 type Row = {
   id: string;
@@ -67,6 +58,26 @@ export default async function AllCompetitorProductsPage({
 
   const one = (v: Row["competitors"]) => (Array.isArray(v) ? v[0] : v);
 
+  const products: AllProduct[] = rows.map((p) => {
+    const fields = (p.fields ?? {}) as Record<string, string>;
+    const comp = one(p.competitors);
+    return {
+      id: p.id,
+      name: p.name,
+      competitorId: p.competitor_id,
+      competitorName: comp?.name ?? null,
+      photoUrl: p.photo_url,
+      price:
+        fields.harga ||
+        (p.price_idr != null
+          ? `Rp ${Number(p.price_idr).toLocaleString("id-ID")}`
+          : "—"),
+      sold: fields.sold || "—",
+      targetRmb: fields.reverse_hpp ? `¥${fields.reverse_hpp}` : "—",
+      size: fields.ukuran || "",
+    };
+  });
+
   return (
     <div className="space-y-6">
       <CompetitorsTabs />
@@ -95,79 +106,11 @@ export default async function AllCompetitorProductsPage({
       </form>
 
       <p className="text-sm text-muted-foreground">
-        {rows.length} product{rows.length === 1 ? "" : "s"}
-        {q ? " matching" : ""}. The yellow column is the target sourcing RMB.
+        {products.length} product{products.length === 1 ? "" : "s"}
+        {q ? " matching" : ""}. Tap a row for full details.
       </p>
 
-      <div className="overflow-hidden rounded-md border">
-        <Table stickyHeader>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-20">Photo</TableHead>
-              <TableHead>Product</TableHead>
-              <TableHead>Competitor</TableHead>
-              <TableHead className="text-right">Price</TableHead>
-              <TableHead className="text-right">Sold</TableHead>
-              <TableHead className="text-right">Target RMB</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground">
-                  {q ? "No products match that search." : "No competitor products yet."}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((p) => {
-                const fields = (p.fields ?? {}) as Record<string, string>;
-                const comp = one(p.competitors);
-                const price =
-                  fields.harga ||
-                  (p.price_idr != null
-                    ? `Rp ${Number(p.price_idr).toLocaleString("id-ID")}`
-                    : "—");
-                return (
-                  <TableRow key={p.id}>
-                    <TableCell className="w-20">
-                      {p.photo_url ? (
-                        <PhotoPopout
-                          src={p.photo_url}
-                          className="h-14 w-14 rounded border object-cover"
-                        />
-                      ) : (
-                        <div className="h-14 w-14 rounded bg-muted" />
-                      )}
-                    </TableCell>
-                    <TableCell className="max-w-64 whitespace-pre-line text-xs font-medium">
-                      {p.name}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {p.competitor_id ? (
-                        <Link
-                          href={`/competitors/${p.competitor_id}`}
-                          className="hover:underline"
-                        >
-                          {comp?.name ?? "—"}
-                        </Link>
-                      ) : (
-                        <span className="text-muted-foreground">— unassigned —</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">{price}</TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {fields.sold || "—"}
-                    </TableCell>
-                    <TableCell className="bg-yellow-100 text-right text-xs font-semibold tabular-nums text-yellow-950">
-                      {fields.reverse_hpp ? `¥${fields.reverse_hpp}` : "—"}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <AllProductsTable products={products} />
     </div>
   );
 }
