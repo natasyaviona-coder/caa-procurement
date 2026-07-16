@@ -11,8 +11,7 @@ import { PhotoPopout } from "@/components/photo-popout";
 import { createClient } from "@/lib/supabase/client";
 import { reverseHppRmb } from "@/lib/competitor-costing";
 import { saveBulkCompetitorProducts, type BulkPictureItem } from "../actions";
-
-type Box = { x: number; y: number; width: number; height: number };
+import { CropModal, type Box } from "./crop-modal";
 
 type Item = {
   id: string;
@@ -29,7 +28,7 @@ type Item = {
   rmb: string;
 };
 
-type Settings = { fx: number; admin: number; margin: number };
+type Settings = { fx: number };
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -79,20 +78,44 @@ export function BulkPictures({ settings }: { settings: Settings }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [saving, startSaving] = useTransition();
+  const [cropId, setCropId] = useState<string | null>(null);
+  // Reverse-costing percentages for HPP RMB — independent of the FEI Settings
+  // (which use a different margin). Defaults match Nat's formula.
+  const [cost, setCost] = useState({
+    ongkir: 44,
+    admin: 30,
+    margin: 10,
+    fx: settings.fx,
+  });
   const router = useRouter();
 
-  function calcRmb(priceStr: string): string {
+  function calcRmb(priceStr: string, c = cost): string {
     const n = Number(priceStr.replace(/[^0-9.]/g, ""));
     const rmb = reverseHppRmb(Number.isFinite(n) ? n : null, {
-      fxRate: settings.fx,
-      adminPct: settings.admin,
-      marginPct: settings.margin,
+      fxRate: c.fx,
+      adminPct: c.admin / 100,
+      marginPct: c.margin / 100,
+      ongkirPct: c.ongkir / 100,
     });
     return rmb != null ? rmb.toFixed(2) : "";
   }
 
+  function updateCost(patchCost: Partial<typeof cost>) {
+    const next = { ...cost, ...patchCost };
+    setCost(next);
+    setItems((prev) => prev.map((it) => ({ ...it, rmb: calcRmb(it.priceIdr, next) })));
+  }
+
   function patch(id: string, next: Partial<Item>) {
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...next } : it)));
+  }
+
+  async function applyCrop(id: string, box: Box) {
+    const it = items.find((x) => x.id === id);
+    setCropId(null);
+    if (!it) return;
+    const cropped = await cropToDataUrl(it.fullUrl, box);
+    patch(id, { box, croppedUrl: cropped, useFull: false });
   }
 
   async function addFiles(files: File[]) {
@@ -237,10 +260,16 @@ export function BulkPictures({ settings }: { settings: Settings }) {
             </Button>
           </>
         ) : null}
-        <span className="text-xs text-muted-foreground">
-          Reverse RMB = price × (1 − 44% ongkir − {Math.round(settings.admin * 100)}%
-          admin − {Math.round(settings.margin * 100)}% margin) ÷ {settings.fx}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        <span className="font-medium">
+          HPP RMB = price × (1 − ongkir − admin − margin) ÷ FX
         </span>
+        <CostInput label="Ongkir %" value={cost.ongkir} onChange={(v) => updateCost({ ongkir: v })} />
+        <CostInput label="Admin %" value={cost.admin} onChange={(v) => updateCost({ admin: v })} />
+        <CostInput label="Margin %" value={cost.margin} onChange={(v) => updateCost({ margin: v })} />
+        <CostInput label="FX" value={cost.fx} onChange={(v) => updateCost({ fx: v })} wide />
       </div>
 
       {items.length === 0 ? (
@@ -267,13 +296,22 @@ export function BulkPictures({ settings }: { settings: Settings }) {
                   />
                 )}
                 {it.status === "ready" ? (
-                  <button
-                    type="button"
-                    onClick={() => patch(it.id, { useFull: !it.useFull })}
-                    className="text-[11px] text-muted-foreground underline-offset-2 hover:underline"
-                  >
-                    {it.useFull ? "Use cropped" : "Use full image"}
-                  </button>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setCropId(it.id)}
+                      className="text-[11px] font-medium text-brand underline-offset-2 hover:underline"
+                    >
+                      Crop
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => patch(it.id, { useFull: !it.useFull })}
+                      className="text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      {it.useFull ? "Use cropped" : "Use full image"}
+                    </button>
+                  </div>
                 ) : null}
               </div>
 
@@ -331,6 +369,45 @@ export function BulkPictures({ settings }: { settings: Settings }) {
           ))}
         </div>
       )}
+
+      {cropId
+        ? (() => {
+            const it = items.find((x) => x.id === cropId);
+            if (!it) return null;
+            return (
+              <CropModal
+                src={it.fullUrl}
+                initialBox={it.box}
+                onApply={(b) => void applyCrop(cropId, b)}
+                onClose={() => setCropId(null)}
+              />
+            );
+          })()
+        : null}
     </div>
+  );
+}
+
+function CostInput({
+  label,
+  value,
+  onChange,
+  wide,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  wide?: boolean;
+}) {
+  return (
+    <label className="flex items-center gap-1">
+      <span>{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value) || 0)}
+        className={`h-7 rounded border border-input bg-transparent px-1.5 text-right tabular-nums text-foreground ${wide ? "w-16" : "w-12"}`}
+      />
+    </label>
   );
 }

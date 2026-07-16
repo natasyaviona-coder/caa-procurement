@@ -11,17 +11,12 @@ export default async function BulkPicturesPage() {
   const supabase = await createClient();
   const { data: settings } = await supabase
     .from("settings")
-    .select("fx_rate_rmb_idr, default_admin_pct, default_target_margin_pct")
+    .select("fx_rate_rmb_idr")
     .eq("id", 1)
     .maybeSingle();
 
   const s = {
     fx: settings?.fx_rate_rmb_idr ? Number(settings.fx_rate_rmb_idr) : 2700,
-    admin: settings?.default_admin_pct != null ? Number(settings.default_admin_pct) : 0.3,
-    margin:
-      settings?.default_target_margin_pct != null
-        ? Number(settings.default_target_margin_pct)
-        : 0.1,
   };
 
   return (
