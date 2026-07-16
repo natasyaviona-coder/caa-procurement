@@ -312,7 +312,7 @@ export interface Database {
       field_quotes: {
         Row: {
           id: string;
-          supplier_id: string;
+          supplier_id: string | null;
           product_id: string | null;
           product_name: string | null;
           photo_url: string | null;
@@ -338,7 +338,7 @@ export interface Database {
         };
         Insert: {
           id?: string;
-          supplier_id: string;
+          supplier_id?: string | null;
           product_id?: string | null;
           product_name?: string | null;
           photo_url?: string | null;

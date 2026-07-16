@@ -26,7 +26,7 @@ function fmtIdr(n: number | null): string {
 export function CaptureForm({
   supplier,
 }: {
-  supplier: { id: string; name: string };
+  supplier: { id: string; name: string } | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -43,9 +43,6 @@ export function CaptureForm({
     () => (cardPhoto ? URL.createObjectURL(cardPhoto) : null),
     [cardPhoto]
   );
-  const productInputRef = useRef<HTMLInputElement>(null);
-  const cardInputRef = useRef<HTMLInputElement>(null);
-
   // data fields (strings so inputs stay controlled + empty-able)
   const [productName, setProductName] = useState("");
   const [priceRmb, setPriceRmb] = useState("");
@@ -119,7 +116,7 @@ export function CaptureForm({
   async function uploadPhoto(file: File, kind: string): Promise<string> {
     const supabase = createClient();
     const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-    const path = `${supplier.id}/${kind}-${crypto.randomUUID()}.${ext}`;
+    const path = `${supplier?.id ?? "unassigned"}/${kind}-${crypto.randomUUID()}.${ext}`;
     const { error } = await supabase.storage
       .from("field-photos")
       .upload(path, file, { contentType: file.type || "image/jpeg" });
@@ -137,12 +134,13 @@ export function CaptureForm({
         const photoUrl = productPhoto
           ? await uploadPhoto(productPhoto, "product")
           : null;
-        const businessCardUrl = cardPhoto
-          ? await uploadPhoto(cardPhoto, "card")
-          : null;
+        // A business card can only be stored on a supplier — skip it until one
+        // is assigned.
+        const businessCardUrl =
+          cardPhoto && supplier ? await uploadPhoto(cardPhoto, "card") : null;
 
         await saveFieldQuote({
-          supplierId: supplier.id,
+          supplierId: supplier?.id ?? null,
           productName: productName || null,
           photoUrl,
           businessCardUrl,
@@ -192,27 +190,12 @@ export function CaptureForm({
         {/* Photos */}
         <section className="flex flex-wrap gap-4">
           <div className="grid gap-1.5">
-            <Label className="text-xs">Foto barang</Label>
-            <input
-              ref={productInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => setProductPhoto(e.target.files?.[0] ?? null)}
+            <PhotoPicker
+              label="Foto barang"
+              placeholder="+ foto barang"
+              preview={productPreview}
+              onFile={setProductPhoto}
             />
-            <button
-              type="button"
-              onClick={() => productInputRef.current?.click()}
-              className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-md border border-dashed text-xs text-muted-foreground hover:bg-muted"
-            >
-              {productPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={productPreview} alt="" className="h-full w-full object-cover" />
-              ) : (
-                "+ foto barang"
-              )}
-            </button>
             <Button
               type="button"
               variant="outline"
@@ -223,29 +206,21 @@ export function CaptureForm({
               {ocrBusy ? "Scanning…" : "Scan photo (OCR)"}
             </Button>
           </div>
-          <div className="grid gap-1.5">
-            <Label className="text-xs">Foto kartu nama</Label>
-            <input
-              ref={cardInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => setCardPhoto(e.target.files?.[0] ?? null)}
+          {supplier ? (
+            <PhotoPicker
+              label="Foto kartu nama"
+              placeholder="+ kartu nama"
+              preview={cardPreview}
+              onFile={setCardPhoto}
             />
-            <button
-              type="button"
-              onClick={() => cardInputRef.current?.click()}
-              className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-md border border-dashed text-xs text-muted-foreground hover:bg-muted"
-            >
-              {cardPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={cardPreview} alt="" className="h-full w-full object-cover" />
-              ) : (
-                "+ kartu nama"
-              )}
-            </button>
-          </div>
+          ) : (
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Foto kartu nama</Label>
+              <div className="flex h-32 w-32 items-center justify-center rounded-md border border-dashed p-2 text-center text-[11px] text-muted-foreground">
+                Assign a supplier first to attach a business card
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Data */}
@@ -394,6 +369,76 @@ export function CaptureForm({
           </dl>
         </section>
       </aside>
+    </div>
+  );
+}
+
+// Photo slot that offers BOTH camera and gallery. The big tile and the
+// "Gallery" button open the file picker (photo library on a phone); the
+// "Camera" button opens the camera directly via the capture attribute.
+function PhotoPicker({
+  label,
+  placeholder,
+  preview,
+  onFile,
+}: {
+  label: string;
+  placeholder: string;
+  preview: string | null;
+  onFile: (f: File | null) => void;
+}) {
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="grid gap-1.5">
+      <Label className="text-xs">{label}</Label>
+      <input
+        ref={galleryRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+      />
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+      />
+      <button
+        type="button"
+        onClick={() => galleryRef.current?.click()}
+        className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-md border border-dashed text-xs text-muted-foreground hover:bg-muted"
+      >
+        {preview ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={preview} alt="" className="h-full w-full object-cover" />
+        ) : (
+          placeholder
+        )}
+      </button>
+      <div className="flex w-32 gap-1">
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="flex-1"
+          onClick={() => cameraRef.current?.click()}
+        >
+          Camera
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          className="flex-1"
+          onClick={() => galleryRef.current?.click()}
+        >
+          Gallery
+        </Button>
+      </div>
     </div>
   );
 }

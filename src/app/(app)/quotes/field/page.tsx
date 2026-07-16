@@ -4,7 +4,8 @@ import { requireProfile, canWrite } from "@/lib/auth";
 import { QuotesTabs } from "../quotes-tabs";
 import { StartFoto } from "./start-foto";
 import { AssignProduct } from "@/components/assign-product";
-import { assignFieldQuoteProduct } from "./actions";
+import { AssignSupplier } from "@/components/assign-supplier";
+import { assignFieldQuoteProduct, assignFieldQuoteSupplier } from "./actions";
 import { LinkButton } from "@/components/link-button";
 import { computeFieldQuote } from "@/lib/field-calc";
 import { formatIDR } from "@/lib/format";
@@ -160,12 +161,22 @@ export default async function QuotesFieldPage({
                     )}
                   </TableCell>
                   <TableCell>
-                    <Link
-                      href={`/quotes/field?supplier=${r.supplier_id}`}
-                      className="hover:underline"
-                    >
-                      {r.supplierName}
-                    </Link>
+                    {r.supplier_id ? (
+                      <Link
+                        href={`/quotes/field?supplier=${r.supplier_id}`}
+                        className="hover:underline"
+                      >
+                        {r.supplierName}
+                      </Link>
+                    ) : writable ? (
+                      <AssignSupplier
+                        currentSupplierId={null}
+                        suppliers={suppliersRes.data ?? []}
+                        action={assignFieldQuoteSupplier.bind(null, r.id)}
+                      />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="max-w-48 text-xs">
                     {r.product_name ?? "—"}

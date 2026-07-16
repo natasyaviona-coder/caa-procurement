@@ -69,6 +69,14 @@ export function StartFoto({
       <Button disabled={pending} onClick={go}>
         {pending ? "Starting…" : "Continue"}
       </Button>
+      <Button
+        variant="outline"
+        disabled={pending}
+        onClick={() => router.push("/quotes/field/new")}
+        title="Capture now and pick the supplier later from the list"
+      >
+        Skip — add supplier later
+      </Button>
       <Button variant="ghost" disabled={pending} onClick={() => setOpen(false)}>
         Cancel
       </Button>

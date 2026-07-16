@@ -24,6 +24,26 @@ export async function assignFieldQuoteProduct(
   revalidatePath("/quotes");
 }
 
+// Assign (or change) the supplier on a field quote after the fact — for quotes
+// captured before the supplier was known. Pass null to clear it.
+export async function assignFieldQuoteSupplier(
+  quoteId: string,
+  supplierId: string | null
+): Promise<void> {
+  const profile = await requireProfile();
+  if (!canWrite(profile.role)) throw new Error("Not permitted");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("field_quotes")
+    .update({ supplier_id: supplierId })
+    .eq("id", quoteId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/quotes/field");
+  revalidatePath("/quotes");
+}
+
 // "Start foto" step: resolve the supplier before entering the capture form.
 // Reuses an existing same-named supplier (case-insensitive) instead of
 // duplicating; creates it when genuinely new.
@@ -62,7 +82,7 @@ export async function startFieldSession(input: {
 }
 
 export type SaveFieldQuoteInput = {
-  supplierId: string;
+  supplierId: string | null;
   productName: string | null;
   photoUrl: string | null;
   businessCardUrl: string | null;
@@ -87,7 +107,6 @@ export type SaveFieldQuoteInput = {
 export async function saveFieldQuote(input: SaveFieldQuoteInput) {
   const profile = await requireProfile();
   if (!canWrite(profile.role)) throw new Error("Not permitted");
-  if (!input.supplierId) throw new Error("Supplier is required");
   if (input.priceRmb == null && !input.photoUrl) {
     throw new Error("Add at least a price or a product photo");
   }
@@ -118,8 +137,9 @@ export async function saveFieldQuote(input: SaveFieldQuoteInput) {
   });
   if (error) throw new Error(error.message);
 
-  // A business card belongs to the supplier record, not the quote.
-  if (input.businessCardUrl) {
+  // A business card belongs to the supplier record, not the quote — so it can
+  // only be stored once a supplier is set.
+  if (input.businessCardUrl && input.supplierId) {
     await supabase
       .from("suppliers")
       .update({ business_card_url: input.businessCardUrl })

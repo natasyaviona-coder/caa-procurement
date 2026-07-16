@@ -14,24 +14,32 @@ export default async function NewFieldQuotePage({
   if (!canWrite(profile.role)) redirect("/quotes/field");
 
   const { supplier } = await searchParams;
-  if (!supplier) redirect("/quotes/field");
 
-  const supabase = await createClient();
-  const { data: supplierRow } = await supabase
-    .from("suppliers")
-    .select("id, name")
-    .eq("id", supplier)
-    .single();
-  if (!supplierRow) redirect("/quotes/field");
+  // Supplier is optional — you can capture now and assign the supplier later
+  // from the Quotes Field list.
+  let supplierRow: { id: string; name: string } | null = null;
+  if (supplier) {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("suppliers")
+      .select("id, name")
+      .eq("id", supplier)
+      .single();
+    supplierRow = data ?? null;
+  }
 
   return (
     <div className="space-y-6">
       <QuotesTabs />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Foto — {supplierRow.name}</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            Foto — {supplierRow ? supplierRow.name : "no supplier yet"}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Capture item → price → live HPP. Save, then capture the next one.
+            {supplierRow
+              ? "Capture item → price → live HPP. Save, then capture the next one."
+              : "Capture now — assign the supplier later from the list. The business card needs a supplier, so add it after assigning."}
           </p>
         </div>
         <LinkButton href="/quotes/field" variant="outline">
