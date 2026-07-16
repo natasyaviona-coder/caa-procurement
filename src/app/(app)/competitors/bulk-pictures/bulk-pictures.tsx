@@ -39,6 +39,10 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+// Always output a square 96x96 thumbnail (center-cover), so every competitor
+// photo is a uniform 1:1 tile regardless of the box shape.
+const OUT_SIZE = 96;
+
 async function cropToDataUrl(objectUrl: string, box: Box | null): Promise<string> {
   const img = await loadImage(objectUrl);
   const W = img.naturalWidth;
@@ -55,13 +59,24 @@ async function cropToDataUrl(objectUrl: string, box: Box | null): Promise<string
     if (sx + sw > W) sw = W - sx;
     if (sy + sh > H) sh = H - sy;
   }
-  if (sw < 4 || sh < 4) return objectUrl;
+  if (sw < 4 || sh < 4) {
+    sx = 0;
+    sy = 0;
+    sw = W;
+    sh = H;
+  }
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(sw);
-  canvas.height = Math.round(sh);
+  canvas.width = OUT_SIZE;
+  canvas.height = OUT_SIZE;
   const ctx = canvas.getContext("2d");
   if (!ctx) return objectUrl;
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, OUT_SIZE, OUT_SIZE);
+  // Cover: scale so the region fills the square, center-cropping any overflow.
+  const scale = Math.max(OUT_SIZE / sw, OUT_SIZE / sh);
+  const dw = sw * scale;
+  const dh = sh * scale;
+  ctx.drawImage(img, sx, sy, sw, sh, (OUT_SIZE - dw) / 2, (OUT_SIZE - dh) / 2, dw, dh);
   return canvas.toDataURL("image/jpeg", 0.9);
 }
 
@@ -286,13 +301,13 @@ export function BulkPictures({ settings }: { settings: Settings }) {
             >
               <div className="flex shrink-0 flex-col items-center gap-1.5">
                 {it.status === "analyzing" ? (
-                  <div className="flex h-28 w-28 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
+                  <div className="flex h-24 w-24 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
                     Analyzing…
                   </div>
                 ) : (
                   <PhotoPopout
                     src={it.useFull ? it.fullUrl : it.croppedUrl}
-                    className="h-28 w-28 rounded border object-contain"
+                    className="h-24 w-24 rounded border object-cover"
                   />
                 )}
                 {it.status === "ready" ? (

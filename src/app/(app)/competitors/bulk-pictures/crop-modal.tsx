@@ -41,13 +41,23 @@ export function CropModal({
   }
   function onMove(e: React.PointerEvent) {
     if (!start.current) return;
+    const el = imgRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
     const p = toFrac(e.clientX, e.clientY);
     const s = start.current;
+    // Force a square selection (equal pixels on screen → a square crop, since
+    // the image is scaled uniformly). Compute the side in px, back to fractions.
+    const side = Math.max(Math.abs((p.x - s.x) * r.width), Math.abs((p.y - s.y) * r.height));
+    const sfx = side / r.width;
+    const sfy = side / r.height;
+    const x = p.x < s.x ? s.x - sfx : s.x;
+    const y = p.y < s.y ? s.y - sfy : s.y;
     setRect({
-      x: Math.min(s.x, p.x),
-      y: Math.min(s.y, p.y),
-      width: Math.abs(p.x - s.x),
-      height: Math.abs(p.y - s.y),
+      x: Math.max(0, Math.min(x, 1 - sfx)),
+      y: Math.max(0, Math.min(y, 1 - sfy)),
+      width: sfx,
+      height: sfy,
     });
   }
   function onUp() {
