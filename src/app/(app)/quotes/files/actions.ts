@@ -59,11 +59,11 @@ export async function recordUploadedFile(input: {
   }
 
   const supabase = await createClient();
-  const supplierId = await resolveSupplier(
-    supabase,
-    input.supplierId,
-    input.newSupplierName
-  );
+  // Supplier is optional on bulk upload — you can assign it later per file.
+  const supplierId =
+    input.supplierId?.trim() || input.newSupplierName?.trim()
+      ? await resolveSupplier(supabase, input.supplierId, input.newSupplierName)
+      : null;
 
   const { error } = await supabase.from("price_list_files").insert({
     file_name: fileName,

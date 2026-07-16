@@ -35,7 +35,7 @@ type DetectedVariant = {
 };
 
 function combineName(base: string, label: string | null): string {
-  return [base, label].map((s) => (s ?? "").trim()).filter(Boolean).join(" — ");
+  return [base, label].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
 }
 
 export function CaptureForm({
