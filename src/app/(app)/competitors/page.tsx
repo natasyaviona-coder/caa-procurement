@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BulkImportCompetitors } from "./bulk-import";
+import { CompetitorsTabs } from "./competitors-tabs";
 import { PhotoPopout } from "@/components/photo-popout";
 import { AssignCompetitor } from "@/components/assign-competitor";
 import {
@@ -60,6 +61,7 @@ export default async function CompetitorsPage({
 
   return (
     <div className="space-y-6">
+      <CompetitorsTabs />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Competitors</h1>
