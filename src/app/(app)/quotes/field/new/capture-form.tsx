@@ -75,6 +75,7 @@ export function CaptureForm({
   // Multi-variant OCR: when a photo lists several price options, we keep the
   // detected list + which ones have already been saved as their own line.
   const [variants, setVariants] = useState<DetectedVariant[]>([]);
+  const [translation, setTranslation] = useState<string | null>(null);
   const [baseName, setBaseName] = useState("");
   const [currentIdx, setCurrentIdx] = useState<number | null>(null);
   const [savedIdx, setSavedIdx] = useState<Set<number>>(new Set());
@@ -138,6 +139,7 @@ export function CaptureForm({
     setProductPhoto(null);
     setCardPhoto(null);
     setVariants([]);
+    setTranslation(null);
     setBaseName("");
     setCurrentIdx(null);
     setSavedIdx(new Set());
@@ -161,6 +163,11 @@ export function CaptureForm({
         ? json.variants
         : [];
       setBaseName(base);
+      setTranslation(
+        typeof json.translation === "string" && json.translation.trim()
+          ? json.translation.trim()
+          : null
+      );
       setSavedIdx(new Set());
 
       if (list.length === 0) {
@@ -353,6 +360,30 @@ export function CaptureForm({
             </div>
           )}
         </section>
+
+        {/* Full translation of the note (Mandarin → English) */}
+        {translation ? (
+          <section className="space-y-1.5 rounded-md border bg-muted/20 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-semibold uppercase text-muted-foreground">
+                What the note says
+              </h2>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() =>
+                  setNotes((n) => (n.trim() ? `${n}\n${translation}` : translation))
+                }
+              >
+                Add to notes
+              </Button>
+            </div>
+            <p className="whitespace-pre-line text-sm text-foreground">
+              {translation}
+            </p>
+          </section>
+        ) : null}
 
         {/* Detected price options (multi-variant photos) */}
         {variants.length > 1 ? (

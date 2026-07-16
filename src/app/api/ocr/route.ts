@@ -50,6 +50,13 @@ const EXTRACTION_SCHEMA = {
         "Shared base product name/description (without the per-option label), " +
         "translated to English. e.g. '5L bucket + electroplated stand'.",
     },
+    translation: {
+      anyOf: [{ type: "string" }, { type: "null" }],
+      description:
+        "A faithful plain-English translation of ALL text visible in the photo " +
+        "(handwriting, printed labels, stamps), preserving line breaks so the " +
+        "buyer can read the whole note. null if there is no text.",
+    },
     variants: {
       type: "array",
       description:
@@ -72,7 +79,7 @@ const EXTRACTION_SCHEMA = {
       },
     },
   },
-  required: ["product_name", "variants"],
+  required: ["product_name", "translation", "variants"],
   additionalProperties: false,
 } as const;
 
@@ -139,7 +146,8 @@ export async function POST(request: NextRequest) {
                 "If there is only one price, return a single entry with label null. " +
                 "Dimensions like 51.5*37*50 or 51.5×37×50 are carton P×L×T in cm. " +
                 "A price like ¥42, 42元, or a bare number next to 单价/price is the RMB unit price. " +
-                "装箱量, set/ctn, or pcs/ctn is qty per carton. Use null for anything not clearly visible — do not guess.",
+                "装箱量, set/ctn, or pcs/ctn is qty per carton. Use null for anything not clearly visible — do not guess. " +
+                "Also set `translation` to a faithful English translation of EVERY piece of text visible in the photo, line by line, so the buyer can read the whole note.",
             },
           ],
         },
